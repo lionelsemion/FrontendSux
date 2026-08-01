@@ -1,0 +1,36 @@
+<fieldset style="border:0; padding:0; margin:0;">
+  <legend>$label_text</legend>
+  <div style="display:inline-block; direction:rtl;">
+    <input type="radio" name="$name" id="$name-5" value="5" $checked_5 $required>
+    <label for="$name-5" title="5 stars">&#9733;</label>
+    <input type="radio" name="$name" id="$name-4" value="4" $checked_4>
+    <label for="$name-4" title="4 stars">&#9733;</label>
+    <input type="radio" name="$name" id="$name-3" value="3" $checked_3>
+    <label for="$name-3" title="3 stars">&#9733;</label>
+    <input type="radio" name="$name" id="$name-2" value="2" $checked_2>
+    <label for="$name-2" title="2 stars">&#9733;</label>
+    <input type="radio" name="$name" id="$name-1" value="1" $checked_1>
+    <label for="$name-1" title="1 star">&#9733;</label>
+  </div>
+  <style>
+    /*
+      RTL + normal inline flow (not flexbox) is deliberate: combining
+      flex-direction:row-reverse + gap with position:absolute-excluded flex
+      items renders with uneven spacing (a real browser quirk in how the
+      excluded items' static position is resolved under row-reverse). Plain
+      inline content sidesteps it, and DOM order stays 5..1 so the ~
+      sibling-combinator highlighting below still works unchanged.
+    */
+    fieldset input[type="radio"] { position: absolute; opacity: 0; }
+    fieldset input[type="radio"] + label {
+      display: inline-block;
+      cursor: pointer;
+      font-size: 1.5rem;
+      padding: 0 0.075rem;
+      color: #ccc;
+    }
+    fieldset input[type="radio"]:checked ~ label,
+    fieldset input[type="radio"] + label:hover,
+    fieldset input[type="radio"] + label:hover ~ label { color: #f5b301; }
+  </style>
+</fieldset>
