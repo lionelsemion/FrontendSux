@@ -1,3 +1,4 @@
+import pytest
 from playwright.sync_api import Page, expect
 
 
@@ -114,3 +115,29 @@ def test_header_content_is_not_glued_to_the_top_of_the_page(page: Page, live_ser
     switcher_box = page.locator("details.dropdown summary").bounding_box()
     assert switcher_box is not None
     assert switcher_box["y"] > 15
+
+
+def test_theme_switcher_is_vertically_centered_with_other_header_content(
+    page: Page, live_server_url: str
+):
+    # Regression test: Pico's <nav> has no align-items of its own (flex
+    # default: stretch) and instead centers content *within* each nav>ul via
+    # a nav-ul-specific rule -- fine for the site_name/header_item groups,
+    # which are <ul>s, but the theme switcher's <details> isn't one, so
+    # without an explicit align-items:center on the nav itself, it renders
+    # stretched with nothing centering its own content, offset from its
+    # <ul>-based siblings.
+    page.goto(live_server_url + "/")
+
+    switcher_box = page.locator("details.dropdown summary").bounding_box()
+    # "Login" also appears in the sidebar nav (it's a real @expose(...)'d
+    # page too) -- scope to the header landmark specifically.
+    login_box = page.get_by_role("banner").get_by_role(
+        "link", name="Login", exact=True
+    ).bounding_box()
+    assert switcher_box is not None
+    assert login_box is not None
+
+    switcher_center = switcher_box["y"] + switcher_box["height"] / 2
+    login_center = login_box["y"] + login_box["height"] / 2
+    assert switcher_center == pytest.approx(login_center, abs=2)

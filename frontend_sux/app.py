@@ -213,6 +213,17 @@ LAYOUT_STYLE = Markup("""
 body > header {
     padding-block-start: 2rem;
 }
+/* Pico's nav has no align-items of its own (flex default: stretch), and
+   compensates by centering *within* each nav>ul itself (nav ul has
+   align-items:center) -- fine for the site_name/header_items groups, which
+   are <ul>s, but the theme switcher's <details> isn't one, so it just gets
+   stretched with nothing centering its own content, leaving it visually
+   off-center against the <ul> groups beside it. Centering the whole nav
+   directly fixes the <details> case without needing to fake it into a <ul>
+   just to inherit Pico's own centering rule. */
+header > nav {
+    align-items: center;
+}
 """)
 
 # Runs in <head>, before the stylesheet, so a stored preference is applied
