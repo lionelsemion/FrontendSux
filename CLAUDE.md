@@ -352,6 +352,17 @@ attribute, and (b) persistence across visits, since neither is Pico's job:
 invent one) -- which means the `<script>` returned alongside it from
 `_render_theme_switcher()` must stay its immediate next sibling in the DOM.
 
+Pico gives `body>header` (like `body>main`) its normal `padding-block`
+(~1rem) automatically, with no extra work from us -- but that amount reads
+as glued-to-the-top for a thin single-line nav bar sitting right at the
+viewport's edge, in a way it doesn't for the much bigger `<main>` below it.
+`LAYOUT_STYLE` adds an explicit `padding-block-start: 2rem` on `body >
+header` on top of Pico's default for exactly that reason -- found by
+actually measuring the rendered page (`getBoundingClientRect`/computed
+styles via Playwright), not guessed at. Only the *top* side needed it;
+Pico's existing bottom padding already separates header from main
+reasonably.
+
 **A real bug worth remembering, found and fixed while building this**:
 `<script>` and `<style>` are HTML *raw text* elements -- their content
 isn't reparsed as markup at all, so a literal `&#34;` sent inside one is
