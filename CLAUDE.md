@@ -124,6 +124,45 @@ Rules that fall out of this:
   custom type that itself needs a file upload would need that support added
   to `app.py` alongside it.
 
+#### Tuple and nested-tuple return values
+
+A function can return `tuple[...]` (fixed arity, e.g. `tuple[int, bool]`),
+arbitrarily nested (`tuple[int, tuple[bool, str]]`), or the homogeneous
+variadic form (`tuple[int, ...]`). `output_for_value` detects
+`get_origin(annotation) is tuple` *before* its scalar branches (it's a
+container, not a leaf), recurses element-by-element via
+`forms.tuple_element_annotations` (which expands the `tuple[X, ...]` form to
+match the runtime arity) and `resolve_annotation` (so each element can carry
+its own `Annotated[T, "Label"]`), and wraps the results in a
+`div(class_="grid")`. An element with no label of its own falls back to
+`f"{label_text} {index + 1}"` -- so an unlabeled `tuple[int, int]` returned
+from a route whose result label is "Result" renders "Result 1" / "Result 2",
+and nesting composes naturally (a nested tuple's own fallback label becomes
+the *parent* label the next level down falls back against).
+
+This is deliberately **return-only** -- there's no tuple support in
+`input_for_parameter`/`coerce_form_value`, unlike every other type in the
+paragraph above. A tuple isn't "a type with its own widget" the way `Color`
+or `Rating` is; it's a generic combinator over whatever `output_for_value`
+already knows how to render, and there's no equally generic notion of "a
+tuple input" to build a single HTML control for. If a real need for
+structured *input* shows up later, it should get its own design rather than
+retrofitting this mechanism.
+
+`app.py`'s API route needs the parallel-but-separate concern of *JSON*
+encoding (not HTML rendering) for a tuple return value, for exactly the same
+reason Image/custom-type returns already needed it: pydantic can serialize
+`tuple[str, int]` on its own, but not a tuple containing a
+`PIL.Image.Image` or a `SupportsFormField` leaf at any depth. `app.py`
+detects that case recursively (`_tuple_needs_manual_encoding`) and encodes
+matching the tuple's shape (`_encode_tuple_return_value`, nested tuples ->
+nested JSON arrays); the missing-`__form_encode__` decoration-time check
+(`_find_type_missing_form_encode`) recurses the same way, so a custom type
+nested inside a tuple return gets the same clear error as one used directly.
+When *no* leaf needs manual encoding, expose() doesn't do anything special
+at all -- the existing `@wraps(func)` passthrough branch already lets
+FastAPI/pydantic serialize the plain tuple natively.
+
 #### `templates.py` — building a custom widget from a static `.html` file
 
 `frontend_sux.html_template(path)` loads (and caches) a `.html` file as a
@@ -153,8 +192,8 @@ title-casing the URL segment (`label_for_segment`).
 
 ### `app.py`
 `FrontendSux.expose(frontend_paths, title, api_path=None, method="put",
-result_placement="below")` is the one decorator apps use. Per call it
-registers, for each path in `frontend_paths`:
+result_placement="below", submit="button")` is the one decorator apps use.
+Per call it registers, for each path in `frontend_paths`:
 - `GET path` — the form page (inputs from `function_inputs`)
 - `POST path` — form submission; renders an htmx fragment via `output_for_value`
 - `PUT/POST api_path` — the same function as a plain JSON API (defaults to
@@ -164,6 +203,51 @@ registers, for each path in `frontend_paths`:
 the whole `#form` and appends a "Submit again" link. The decorator returns the
 original undecorated function, so exposed functions stay directly callable
 and testable.
+
+#### `submit` — how the form's request gets triggered
+
+`submit: SubmitMode` (exported from the package root) controls what fires
+the form's request and whether a "Submit" button is rendered at all;
+`_submit_form_attrs` (module-level in `app.py`) is the single place that
+maps a mode to (extra `<form>` attributes, show_submit_button), and is where
+all validation of the mode itself happens — eagerly, in `expose()` before
+`wrapper` is even defined, so a bad `submit=` value raises as soon as
+`expose(...)` is called rather than waiting for the function to be invoked.
+
+- `"button"` (default) — unchanged pre-`submit`-parameter behavior: a
+  "Submit" button, htmx's implicit submit-triggered request.
+- `"button-extra-confirmation"` — same, plus `hx-confirm`, which makes
+  htmx run the browser's native `confirm()` before issuing the request and
+  abort it entirely if the user cancels. No custom modal/JS — htmx already
+  has this built in.
+- `"on-change"` — no button; `hx-trigger="change"` on the `<form>`. A
+  `change` event on any descendant input bubbles up to the form (that's why
+  this is one attribute on the form rather than one per input), so this
+  works for however many parameters the function has, including zero.
+- `(seconds, "seconds interval")` — no button; `hx-trigger="every
+  <N>ms"`. Converted to milliseconds (rounded) rather than passing seconds
+  through directly, since htmx's polling trigger syntax doesn't parse
+  fractional seconds — this is what lets `submit=(0.5, "seconds
+  interval")` work at all. The literal second tuple element exists purely
+  so a call site reads as self-documenting (`submit=(2.0, "seconds
+  interval")`) without needing to check the docstring for what the float
+  means; `_submit_form_attrs` still validates it's exactly that string and
+  that the interval is positive.
+
+Every mode is independent of `result_placement`/parameter/return types —
+`form_submit_wrapper` (the `POST path` handler) doesn't know or care what
+triggered the request that reached it.
+
+#### `site_name` — optional site branding
+
+`FrontendSux(site_name=...)` is `None` by default (every existing behavior
+and rendered string is unchanged when omitted). When set, it's appended to
+every page's `<title>` (`"{page_title} · {site_name}"`) and used as both the
+home page's own title and its `<h1>`, replacing the generic "Home" /
+"Today's menu". It's intentionally just those two things — a name, not a
+theme — see a *consuming* app's `main.py` (e.g. a site built on this
+library) for an example of turning it on; this library's own `main.py`
+leaves it unset since it's demonstrating the library unbranded.
 
 ## Conventions
 
@@ -189,6 +273,33 @@ and testable.
   type doesn't need this — but the extension mechanism itself does, which is
   what `main.py`'s `Rating` example + its tests are for. Keep at least one
   working example of it around; don't delete `Rating` as "unused example code."
+- **This "example route + test" rule isn't limited to `forms.py`'s type
+  dispatch — it applies to any new `expose()` capability.** `submit=`'s four
+  modes and tuple/nested-tuple return values are two examples: neither is a
+  `forms.py` built-in type, but each mode and each return shape (flat tuple,
+  nested tuple, a tuple containing a `SupportsFormField`/`Image` leaf) still
+  has its own route in `main.py` and its own test(s). Tuple support is
+  return-only by design (see `forms.py`'s section above) — don't add it to
+  `input_for_parameter`/`coerce_form_value` without a real driving use case.
+
+## Commit messages
+
+- Imperative mood, present tense ("Add tuple return support", not "Added" /
+  "Adds"); summary line under ~72 characters, no trailing period.
+- A body is optional but, when the *why* isn't obvious from the summary
+  alone, prefer adding one over a longer summary line — wrap around 72
+  columns.
+- Land a capability as one commit, not split across several: when a change
+  adds or alters a supported parameter/return type or an `expose()`
+  capability, its `main.py` example route(s), unit test(s), and e2e case
+  belong in the *same* commit as the implementation — this is the natural
+  consequence of the "example route + test" convention above, not a
+  separate rule to remember.
+- Prefixing with a Conventional-Commits-style tag (`feat:`, `fix:`, `docs:`,
+  `test:`, `chore:`, `refactor:`) is welcome when a change clearly fits one
+  bucket, but isn't mandatory — don't force a tag onto a commit that's
+  genuinely mixed (e.g. a bug fix discovered while adding a feature is
+  still one coherent commit).
 
 ## Tests
 
@@ -200,6 +311,11 @@ and testable.
 - `tests/test_*_e2e.py` — Playwright browser tests against the live
   `main.py` app (`live_server_url` fixture in `conftest.py`). Run with
   `uv run pytest --browser chromium` (requires `playwright install` once).
+  `test_submit_modes_e2e.py` specifically covers the parts of `submit=`
+  that a `TestClient`-based test can't: the browser actually withholding a
+  request until a confirm dialog is accepted, `on-change` firing from a
+  real `change` event, and `every <N>ms` polling firing on its own without
+  any interaction.
 
 Run everything: `uv run pytest`. Run just the fast, non-browser suite:
 `uv run pytest --ignore=tests/test_calculator_e2e.py --ignore=tests/test_navigation_e2e.py --ignore=tests/test_type_coverage_e2e.py`.
