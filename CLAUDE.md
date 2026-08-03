@@ -220,17 +220,36 @@ all validation of the mode itself happens — eagerly, in `expose()` before
   htmx run the browser's native `confirm()` before issuing the request and
   abort it entirely if the user cancels. No custom modal/JS — htmx already
   has this built in.
-- `"on-change"` — no button; `hx-trigger="input changed delay:<N>ms"`
+- `"on-change"` — no button; `hx-trigger="input delay:<N>ms"`
   (`ON_CHANGE_DEBOUNCE_MS`, currently 500) on the `<form>`. Deliberately
   `input`, not `change`: a text `<input>` only fires `change` on blur, which
   reads as "not actually live" for exactly the kind of preview this mode is
   for -- typing into a field wouldn't update anything until you clicked or
   tabbed away. `input` fires per keystroke (also for `<select>`/checkboxes
   in evergreen browsers, so one attribute on the form covers every field
-  type); `changed` skips re-firing on non-modifying keys; `delay` debounces
-  a burst of keystrokes into one request instead of one per keystroke. This
-  bubbles from any descendant input up to the form, so it works for however
-  many parameters the function has, including zero.
+  type); `delay` debounces a burst of keystrokes into one request instead of
+  one per keystroke. This bubbles from any descendant input up to the form,
+  so it works for however many parameters the function has, including zero.
+
+  **Deliberately no `changed` modifier**, despite that being the more
+  "obvious" htmx idiom to pair with a debounce delay -- it was there
+  originally and got removed after a real bug surfaced. `changed` suppresses
+  a trigger when *that specific element's* value is unchanged since it last
+  fired, which is right for a text `<input>`/`<select>` (one element, one
+  value) but wrong for a radio-button-based custom widget like `Rating`
+  (`main.py`): its five `<input type=radio>`s share a `name`, but each has a
+  *fixed* `value` ("1"-"5") that never itself changes -- only which one is
+  checked does. Cycling a radio group back to a value it already visited
+  (3 stars -> 5 stars -> 3 stars again) re-fires that same `value="3"`
+  radio, which `changed` sees as "unchanged since it last fired" and wrongly
+  suppresses, even though the group's actual selection genuinely changed.
+  `input` alone doesn't have this problem (and was redundant with `changed`
+  for plain text fields anyway -- it only fires on a real value change to
+  begin with). See `/rating/live-average/` in `main.py` and
+  `test_on_change_re_fires_when_a_radio_group_cycles_back_to_a_visited_value`
+  in `tests/test_submit_modes_e2e.py` -- this can only be demonstrated with
+  a real browser; a `TestClient` test can only see the static `hx-trigger=`
+  string, not htmx's runtime behavior.
 - `(seconds, "seconds interval")` — no button; `hx-trigger="every
   <N>ms"`. Converted to milliseconds (rounded) rather than passing seconds
   through directly, since htmx's polling trigger syntax doesn't parse
