@@ -363,6 +363,41 @@ styles via Playwright), not guessed at. Only the *top* side needed it;
 Pico's existing bottom padding already separates header from main
 reasonably.
 
+Pico's `<nav>` itself has no `align-items` of its own (flex default:
+`stretch`) and instead centers content *within* each `nav>ul` via a
+`nav ul`-specific rule -- fine for the `site_name`/`header_items` groups,
+which are `<ul>`s, but the theme switcher's `<details>` isn't one, so it
+rendered stretched with nothing centering its own content, visibly offset
+from its `<ul>`-based siblings. `header > nav { align-items: center; }`
+fixes the `<details>` case directly, rather than wrapping it in a `<ul><li>`
+purely to inherit Pico's own centering rule.
+
+#### Form fields with different label lengths misaligning
+
+Each field is one `<label>{text}{input}</label>` grid cell (`forms.py`).
+Pico's `.grid` leaves `align-items` at its default (`stretch`/`normal`),
+which stretches every cell to the row's height -- set by whichever field's
+label wraps the most -- but doesn't push a *shorter* label's content down
+to compensate. Net effect: a field with a short, one-line label (e.g.
+Caesar cipher's "Shift") sits with its input near the top of a tall row,
+while a field with a long label that wraps to two lines (e.g.
+"Capitalization") has its input further down -- different Y positions in
+what's visually meant to be one row of inputs.
+
+`LAYOUT_STYLE` adds `#form > .grid { align-items: end; }`, scoped to the
+form's own input grid specifically (not `.grid` generally, which would
+also reach the unrelated output grid `result_placement="replace"` uses).
+`align-items: end` pushes each cell's *content* to the bottom of its own
+cell instead of leaving it stretched-but-unpositioned -- since a label's
+content is "text, then input" in that order, this lines every input up on
+the same baseline regardless of how many lines its own label took, with no
+change needed to `forms.py`'s rendering at all. Verified both by measuring
+input bounding boxes via Playwright at a viewport width chosen specifically
+to make one label wrap while its siblings don't (`/demo/field-alignment/`,
+added for exactly this), and by checking existing checkbox/custom-widget
+forms (`tip_calculator`, `average_rating`) for regressions, since both have
+a different internal element order than the plain scalar-type case.
+
 **A real bug worth remembering, found and fixed while building this**:
 `<script>` and `<style>` are HTML *raw text* elements -- their content
 isn't reparsed as markup at all, so a literal `&#34;` sent inside one is
