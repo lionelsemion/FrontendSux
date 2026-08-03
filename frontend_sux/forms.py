@@ -78,6 +78,20 @@ def resolve_annotation(annotation):
     return annotation, label_text
 
 
+def tuple_element_annotations(annotation: type, arity: int) -> tuple:
+    """
+    Expand a tuple[...] annotation's type args to match a runtime arity,
+    handling the homogeneous variadic form tuple[X, ...] by repeating X.
+    Fixed-arity tuple[A, B, C] is returned unchanged (and is expected to
+    already match `arity`).
+    """
+
+    element_annotations = get_args(annotation)
+    if len(element_annotations) == 2 and element_annotations[1] is Ellipsis:
+        return (element_annotations[0],) * arity
+    return element_annotations
+
+
 def input_for_parameter(
     name: str,
     annotation: type,
@@ -235,6 +249,26 @@ def coerce_form_value(annotation: type, raw_value: Any):
 
 
 def output_for_value(annotation: type, value: Any, label_text: str = "Result"):
+    if get_origin(annotation) is tuple:
+        # A container, not a leaf type -- every element is rendered by this
+        # same function (recursing for nested tuples) and wrapped together,
+        # so this has to be checked before the scalar branches below rather
+        # than slotted in alongside them.
+        element_annotations = tuple_element_annotations(annotation, len(value))
+        elements = []
+        for index, (raw_element_annotation, element_value) in enumerate(
+            zip(element_annotations, value)
+        ):
+            element_annotation, element_label = resolve_annotation(raw_element_annotation)
+            elements.append(
+                output_for_value(
+                    element_annotation,
+                    element_value,
+                    element_label or f"{label_text} {index + 1}",
+                )
+            )
+        return div(class_="grid")[elements]
+
     if annotation is Color:
         swatch = value.as_hex()
         element = div(style="display:flex; align-items:center; gap:0.5rem;")[

@@ -17,6 +17,7 @@ from frontend_sux.forms import (
     input_for_parameter,
     output_for_value,
     resolve_annotation,
+    tuple_element_annotations,
 )
 
 
@@ -153,6 +154,57 @@ class TestOutputForValue:
     def test_unsupported_type_raises(self):
         with pytest.raises(TypeError):
             output_for_value(dict, {})
+
+
+class TestTupleElementAnnotations:
+    def test_fixed_arity_returned_unchanged(self):
+        assert tuple_element_annotations(tuple[int, str], 2) == (int, str)
+
+    def test_variadic_expands_to_match_arity(self):
+        assert tuple_element_annotations(tuple[int, ...], 4) == (int, int, int, int)
+
+
+class TestTupleOutput:
+    def test_flat_tuple_renders_every_element(self):
+        rendered = str(output_for_value(tuple[int, bool], (3, True)))
+        assert "3" in rendered
+        assert "✓" in rendered
+
+    def test_flat_tuple_uses_annotated_label_per_element(self):
+        rendered = str(
+            output_for_value(
+                tuple[Annotated[int, "Count"], Annotated[bool, "Flag"]], (3, True)
+            )
+        )
+        assert "Count: " in rendered
+        assert "Flag: " in rendered
+
+    def test_flat_tuple_falls_back_to_indexed_labels(self):
+        rendered = str(output_for_value(tuple[int, int], (1, 2), label_text="Result"))
+        assert "Result 1: 1" in rendered
+        assert "Result 2: 2" in rendered
+
+    def test_nested_tuple_recurses_and_builds_indexed_labels(self):
+        rendered = str(
+            output_for_value(
+                tuple[int, tuple[bool, str]], (2, (True, "hi")), label_text="Result"
+            )
+        )
+        assert "Result 1: 2" in rendered
+        assert "Result 2 1: ✓" in rendered
+        assert "Result 2 2: hi" in rendered
+
+    def test_variadic_tuple_applies_same_annotation_to_every_element(self):
+        rendered = str(
+            output_for_value(tuple[int, ...], (1, 2, 3), label_text="Numbers")
+        )
+        assert "Numbers 1: 1" in rendered
+        assert "Numbers 2: 2" in rendered
+        assert "Numbers 3: 3" in rendered
+
+    def test_tuple_with_unsupported_element_type_raises(self):
+        with pytest.raises(TypeError):
+            output_for_value(tuple[dict, int], ({}, 1))
 
 
 class TestImageIO:

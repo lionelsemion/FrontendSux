@@ -91,6 +91,30 @@ def word_count(text: Annotated[str, "Text"]) -> int:
     return len(text.split())
 
 
+@app.expose(["/text/word-count-live/"], "Live Word Count", submit="on-change")
+def word_count_live(text: Annotated[str, "Text"]) -> int:
+    return len(text.split())
+
+
+@app.expose(["/text/analyze/"], "Analyze Text")
+def analyze_text(
+    text: Annotated[str, "Text"],
+) -> tuple[Annotated[int, "Word count"], Annotated[bool, "Is palindrome"]]:
+    cleaned = text.lower().replace(" ", "")
+    return len(text.split()), cleaned == cleaned[::-1]
+
+
+@app.expose(["/text/analyze-detailed/"], "Analyze Text (Detailed)")
+def analyze_text_detailed(
+    text: Annotated[str, "Text"],
+) -> tuple[
+    Annotated[int, "Word count"],
+    tuple[Annotated[bool, "Is palindrome"], Annotated[str, "Reversed"]],
+]:
+    cleaned = text.lower().replace(" ", "")
+    return len(text.split()), (cleaned == cleaned[::-1], text[::-1])
+
+
 @app.expose(["/text/is-palindrome/"], "Is Palindrome")
 def is_palindrome(text: Annotated[str, "Text"]) -> bool:
     cleaned = text.lower().replace(" ", "")
@@ -105,6 +129,16 @@ def roll_dice(sides: Annotated[int, "Sides"] = 6) -> int:
 @app.expose(["/random/coin/"], "Coin")
 def flip_coin() -> Literal["heads", "tails"]:
     return random.choice(["heads", "tails"])
+
+
+@app.expose(["/demo/confirm/"], "Greet (With Confirmation)", submit="button-extra-confirmation")
+def greet_with_confirmation(name: Annotated[str, "Name"]) -> str:
+    return f"Hello, {name}!"
+
+
+@app.expose(["/clock/now/"], "Clock", submit=(1.0, "seconds interval"))
+def clock_now() -> str:
+    return datetime.now().strftime("%H:%M:%S")
 
 
 @app.expose(["/finance/tip/"], "Tip Calculator")
@@ -150,6 +184,13 @@ def average_rating(
     b: Annotated[Rating, "Second rating"],
 ) -> Rating:
     return Rating(round((a.stars + b.stars) / 2))
+
+
+@app.expose(["/rating/rate-and-double/"], "Rate and Double")
+def rate_and_double(
+    rating: Annotated[Rating, "Rating"],
+) -> tuple[Annotated[Rating, "Same rating"], Annotated[int, "Stars as number"]]:
+    return rating, rating.stars
 
 
 @app.expose(["/strmult"], "Multiply Strings")

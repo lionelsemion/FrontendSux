@@ -121,6 +121,194 @@ class TestExposeReturnsOriginalFunction:
         assert greet(name="Ada") == "Hi, Ada!"
 
 
+class TestSubmitModes:
+    def test_default_is_button_with_no_special_trigger(self):
+        client = TestClient(build_app())
+        response = client.get("/greet/")
+
+        assert "<button" in response.text
+        assert "hx-trigger" not in response.text
+        assert "hx-confirm" not in response.text
+
+    def test_button_extra_confirmation_keeps_button_and_adds_hx_confirm(self):
+        client = TestClient(build_app(submit="button-extra-confirmation"))
+        response = client.get("/greet/")
+
+        assert "<button" in response.text
+        assert 'hx-confirm="Are you sure you want to submit?"' in response.text
+
+    def test_on_change_hides_button_and_triggers_on_change_event(self):
+        client = TestClient(build_app(submit="on-change"))
+        response = client.get("/greet/")
+
+        assert "<button" not in response.text
+        assert 'hx-trigger="change"' in response.text
+
+    def test_interval_hides_button_and_triggers_every_n_milliseconds(self):
+        client = TestClient(build_app(submit=(2.5, "seconds interval")))
+        response = client.get("/greet/")
+
+        assert "<button" not in response.text
+        assert 'hx-trigger="every 2500ms"' in response.text
+
+    def test_post_route_behavior_is_unaffected_by_submit_mode(self):
+        client = TestClient(build_app(submit="on-change"))
+        response = client.post("/greet/", data={"name": "Ada"})
+
+        assert "Hello, Ada!" in response.text
+
+    def test_invalid_interval_tag_raises_at_decoration_time(self):
+        app = FrontendSux()
+
+        with pytest.raises(ValueError, match="seconds interval"):
+
+            @app.expose(["/broken/"], "Broken", submit=(1.0, "wrong tag"))
+            def broken() -> str:
+                return "x"
+
+    def test_non_positive_interval_raises_at_decoration_time(self):
+        app = FrontendSux()
+
+        with pytest.raises(ValueError, match="positive"):
+
+            @app.expose(["/broken/"], "Broken", submit=(0, "seconds interval"))
+            def broken() -> str:
+                return "x"
+
+    def test_unsupported_submit_mode_raises_at_decoration_time(self):
+        app = FrontendSux()
+
+        with pytest.raises(ValueError, match="Unsupported submit mode"):
+
+            @app.expose(["/broken/"], "Broken", submit="click-really-hard")
+            def broken() -> str:
+                return "x"
+
+
+class TestSiteName:
+    def test_no_site_name_leaves_title_unchanged(self):
+        client = TestClient(build_app())
+        response = client.get("/greet/")
+
+        assert "<title>Greet</title>" in response.text
+
+    def test_site_name_is_appended_to_every_page_title(self):
+        app = FrontendSux(site_name="Fabric")
+
+        @app.expose(["/greet/"], "Greet")
+        def greet(name: Annotated[str, "Name"]) -> str:
+            return f"Hi, {name}!"
+
+        client = TestClient(app)
+        response = client.get("/greet/")
+
+        assert "<title>Greet · Fabric</title>" in response.text
+
+    def test_site_name_used_as_home_heading(self):
+        client = TestClient(FrontendSux(site_name="Fabric"))
+        response = client.get("/")
+
+        assert "<h1>Fabric</h1>" in response.text
+
+    def test_default_home_heading_unchanged_without_site_name(self):
+        client = TestClient(FrontendSux())
+        response = client.get("/")
+
+        assert "<h1>Today&#39;s menu</h1>" in response.text
+
+
+def build_tuple_app() -> FrontendSux:
+    app = FrontendSux()
+
+    @app.expose(["/analyze/"], "Analyze")
+    def analyze(
+        text: Annotated[str, "Text"],
+    ) -> tuple[Annotated[int, "Length"], Annotated[bool, "Empty"]]:
+        return len(text), len(text) == 0
+
+    return app
+
+
+def build_nested_tuple_app() -> FrontendSux:
+    app = FrontendSux()
+
+    @app.expose(["/nested/"], "Nested")
+    def nested() -> tuple[int, tuple[str, bool]]:
+        return 1, ("two", True)
+
+    return app
+
+
+def build_tuple_with_custom_return_app() -> FrontendSux:
+    """A plain int parameter (no custom/Image param) with a tuple return
+    containing a custom type -- isolates that the API route's manual JSON
+    encoding is triggered by the *return* type alone."""
+
+    app = FrontendSux()
+
+    @app.expose(["/make-rank/"], "Make Rank")
+    def make_rank(
+        value: Annotated[int, "Value"],
+    ) -> tuple[Annotated[int, "Doubled"], Annotated[Rank, "As Rank"]]:
+        return value * 2, Rank(value)
+
+    return app
+
+
+class TestTupleReturnRoutes:
+    def test_frontend_form_renders_every_element_of_flat_tuple(self):
+        client = TestClient(build_tuple_app())
+        response = client.post("/analyze/", data={"text": "hi"})
+
+        assert "Length: 2" in response.text
+        assert "Empty: ✗" in response.text
+
+    def test_frontend_form_renders_nested_tuple_recursively(self):
+        client = TestClient(build_nested_tuple_app())
+        response = client.post("/nested/", data={})
+
+        assert "Result 1: 1" in response.text
+        assert "Result 2 1: two" in response.text
+        assert "Result 2 2: ✓" in response.text
+
+    def test_api_route_serves_plain_tuple_as_json_array_natively(self):
+        client = TestClient(build_tuple_app())
+        response = client.put("/api/analyze/", params={"text": "hi"})
+
+        assert response.status_code == 200
+        assert response.json() == [2, False]
+
+    def test_api_route_serves_nested_tuple_as_nested_json_array_natively(self):
+        client = TestClient(build_nested_tuple_app())
+        response = client.put("/api/nested/", params={})
+
+        assert response.status_code == 200
+        assert response.json() == [1, ["two", True]]
+
+    def test_api_route_manually_encodes_return_only_tuple_with_custom_type(self):
+        client = TestClient(build_tuple_with_custom_return_app())
+        response = client.put("/api/make-rank/", params={"value": 5})
+
+        assert response.status_code == 200
+        assert response.json() == [10, "5"]
+
+    def test_frontend_form_renders_tuple_containing_custom_type(self):
+        client = TestClient(build_tuple_with_custom_return_app())
+        response = client.post("/make-rank/", data={"value": "5"})
+
+        assert "Doubled: 10" in response.text
+        assert "As Rank: 5" in response.text
+
+    def test_missing_form_encode_detected_inside_nested_tuple(self):
+        app = FrontendSux()
+
+        with pytest.raises(TypeError, match="__form_encode__"):
+
+            @app.expose(["/broken-tuple/"], "Broken Tuple")
+            def broken() -> tuple[int, RankWithoutEncode]:
+                return 1, RankWithoutEncode(2)
+
+
 class TestUnsupportedTypesSurfaceErrors:
     def test_unsupported_parameter_type_raises_when_form_is_rendered(self):
         app = FrontendSux()

@@ -77,6 +77,17 @@ def test_grayscale_image_in_image_out(page: Page, live_server_url: str):
     )
 
 
+def test_analyze_text_str_in_nested_tuple_out(page: Page, live_server_url: str):
+    page.goto(live_server_url + "/text/analyze-detailed/")
+
+    page.fill("input[name='text']", "abc")
+    page.click("button[type='submit']")
+
+    expect(page.locator("#output")).to_contain_text("Word count: 1")
+    expect(page.locator("#output")).to_contain_text("Is palindrome: ✗")
+    expect(page.locator("#output")).to_contain_text("Reversed: cba")
+
+
 def test_rating_average_custom_type_in_custom_type_out(page: Page, live_server_url: str):
     page.goto(live_server_url + "/rating/average/")
 

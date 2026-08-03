@@ -13,7 +13,7 @@ def test_home_page_lists_all_top_level_and_grouped_pages(page: Page, live_server
     expect(nav.get_by_text("Text", exact=True)).to_be_visible()
     expect(nav.get_by_role("link", name="Uppercase")).to_be_visible()
     expect(nav.get_by_role("link", name="Reverse")).to_be_visible()
-    expect(nav.get_by_role("link", name="Word Count")).to_be_visible()
+    expect(nav.get_by_role("link", name="Word Count", exact=True)).to_be_visible()
     expect(nav.get_by_text("Random", exact=True)).to_be_visible()
     expect(nav.get_by_role("link", name="Dice")).to_be_visible()
     expect(nav.get_by_role("link", name="Coin")).to_be_visible()
