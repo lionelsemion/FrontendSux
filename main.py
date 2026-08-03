@@ -210,3 +210,18 @@ def rate_and_double(
 @app.expose(["/strmult"], "Multiply Strings")
 def string_multiplier(text: str, count: int) -> str:
     return text * count
+
+
+@app.expose(["/demo/field-alignment/"], "Field Alignment Demo")
+def field_alignment_demo(
+    a: Annotated[str, "A"],
+    b: Annotated[str, "A Rather Long Label That Wraps"],
+    c: Annotated[str, "C"],
+) -> str:
+    """
+    Deliberately mismatched label lengths -- at a narrow enough viewport,
+    "A Rather Long Label That Wraps" wraps to two lines while "A"/"C" stay
+    on one. Demonstrates that the three inputs still land on the same row
+    regardless (see LAYOUT_STYLE's #form > .grid rule).
+    """
+    return f"{a} {b} {c}"

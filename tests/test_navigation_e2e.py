@@ -141,3 +141,29 @@ def test_theme_switcher_is_vertically_centered_with_other_header_content(
     switcher_center = switcher_box["y"] + switcher_box["height"] / 2
     login_center = login_box["y"] + login_box["height"] / 2
     assert switcher_center == pytest.approx(login_center, abs=2)
+
+
+def test_form_fields_align_despite_different_label_lengths(page: Page, live_server_url: str):
+    # Regression test: a field's <label> wraps its text and its input
+    # together; Pico's .grid leaves each cell at its default alignment
+    # (stretch), which stretches the cell to the row's height (set by
+    # whichever label wraps the most) without pushing shorter labels'
+    # content down to compensate -- so a short, single-line label's input
+    # sits higher than a long, wrapped label's input, even in the same row.
+    # Narrow enough that "A Rather Long Label That Wraps" actually wraps
+    # while "A"/"C" don't.
+    page.set_viewport_size({"width": 800, "height": 500})
+    page.goto(live_server_url + "/demo/field-alignment/")
+
+    a_box = page.locator("[name='a']").bounding_box()
+    b_box = page.locator("[name='b']").bounding_box()
+    c_box = page.locator("[name='c']").bounding_box()
+    assert a_box is not None and b_box is not None and c_box is not None
+
+    # The long label must actually wrap for this test to mean anything.
+    label_box = page.get_by_text("A Rather Long Label That Wraps").bounding_box()
+    assert label_box is not None
+    assert label_box["height"] > 20  # one line of this text is ~20px tall
+
+    assert a_box["y"] == pytest.approx(b_box["y"], abs=2)
+    assert b_box["y"] == pytest.approx(c_box["y"], abs=2)

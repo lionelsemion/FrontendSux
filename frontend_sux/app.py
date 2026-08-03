@@ -224,6 +224,23 @@ body > header {
 header > nav {
     align-items: center;
 }
+/* Each form field is one <label>{text}{input}</label> grid cell (see
+   forms.py). Pico's .grid leaves align-items at its default (stretch/
+   normal), which stretches each cell to the row's height (set by whichever
+   field's label wraps the most) but doesn't push the *content* down to
+   compensate -- so a field with a short, single-line label sits with its
+   input near the top of a tall cell, while a field with a long label that
+   wraps to two lines has its input further down, even though both cells
+   are the same height. Different labels, same row, inputs at different Y
+   positions. Aligning cell content to the end pushes every field's content
+   (label text, then input) to the bottom of its own cell instead, which
+   lines up every input on the same baseline regardless of how many lines
+   the label above it took. Scoped to the form's own input grid specifically
+   (#form > .grid) -- not .grid generally -- so it doesn't reach the
+   unrelated output grid used for result_placement="replace". */
+#form > .grid {
+    align-items: end;
+}
 """)
 
 # Runs in <head>, before the stylesheet, so a stored preference is applied
