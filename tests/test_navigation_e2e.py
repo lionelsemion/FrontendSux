@@ -103,3 +103,14 @@ def test_main_content_is_not_glued_to_the_top_of_the_page(page: Page, live_serve
     heading_box = page.get_by_role("heading", name="Calculator", level=1).bounding_box()
     assert heading_box is not None
     assert heading_box["y"] > 10
+
+
+def test_header_content_is_not_glued_to_the_top_of_the_page(page: Page, live_server_url: str):
+    # Regression test: Pico's default body>header padding-block (~1rem) reads
+    # as cramped for a thin nav bar right at the viewport's top edge, even
+    # though that same amount is fine for the much bigger <main> above.
+    page.goto(live_server_url + "/")
+
+    switcher_box = page.locator("details.dropdown summary").bounding_box()
+    assert switcher_box is not None
+    assert switcher_box["y"] > 15

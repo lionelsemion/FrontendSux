@@ -204,6 +204,15 @@ LAYOUT_STYLE = Markup("""
         display: none;
     }
 }
+/* Pico gives body>header its usual padding-block (~1rem), same as
+   body>main -- fine for main, since there's enough content mass under it
+   that 1rem doesn't read as cramped, but a thin single-line nav bar sitting
+   right at the very top of the viewport with that same 1rem looks glued to
+   the edge. Only the top side needs it; the existing bottom padding already
+   separates the header from main reasonably. */
+body > header {
+    padding-block-start: 2rem;
+}
 """)
 
 # Runs in <head>, before the stylesheet, so a stored preference is applied
