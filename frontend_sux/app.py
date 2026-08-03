@@ -33,6 +33,7 @@ from htpy import (
     ul,
 )
 from htpy.starlette import HtpyResponse
+from markupsafe import Markup
 
 from fastapi import FastAPI, Request
 from PIL import Image as PILImage
@@ -182,7 +183,7 @@ def _find_type_missing_form_encode(annotation: type) -> type | None:
     return None
 
 
-LAYOUT_STYLE = """
+LAYOUT_STYLE = Markup("""
 .layout {
     display: grid;
     grid-template-columns: 1fr;
@@ -203,7 +204,59 @@ LAYOUT_STYLE = """
         display: none;
     }
 }
-"""
+""")
+
+# Runs in <head>, before the stylesheet, so a stored preference is applied
+# before first paint -- otherwise the page would flash the OS-default theme
+# and then immediately switch, for anyone who picked a non-default one.
+# Pico applies dark mode automatically from prefers-color-scheme on its own
+# when data-theme isn't set at all, so this only has anything to do when a
+# stored override exists.
+#
+# Wrapped in Markup (like LAYOUT_STYLE above): <script>/<style> are HTML
+# "raw text" elements, so a literal &#34; sent inside one isn't decoded back
+# into a `"` by the browser the way it would be in normal element content --
+# it's just broken JS/CSS syntax. htpy's default escaping is exactly right
+# for untrusted values (Rating's label text, etc.); code we authored
+# ourselves needs the trusted-string path instead, the same one
+# html_template() already uses for hand-authored widget HTML.
+THEME_INIT_SCRIPT = Markup("""
+(function () {
+    var stored = localStorage.getItem("theme");
+    if (stored) {
+        document.documentElement.setAttribute("data-theme", stored);
+    }
+})();
+""")
+
+# Paired with _render_theme_switcher()'s <details> -- uses
+# document.currentScript.previousElementSibling to find it, so this script
+# element must immediately follow it in the DOM (see where it's used).
+THEME_SWITCHER_SCRIPT = Markup("""
+(function () {
+    var switcher = document.currentScript.previousElementSibling;
+    var summary = switcher.querySelector("summary");
+    var label = function (choice) {
+        return "Theme: " + choice.charAt(0).toUpperCase() + choice.slice(1);
+    };
+    summary.textContent = label(localStorage.getItem("theme") || "auto");
+    switcher.querySelectorAll("[data-theme-choice]").forEach(function (link) {
+        link.addEventListener("click", function (event) {
+            event.preventDefault();
+            var choice = link.getAttribute("data-theme-choice");
+            if (choice === "auto") {
+                document.documentElement.removeAttribute("data-theme");
+                localStorage.removeItem("theme");
+            } else {
+                document.documentElement.setAttribute("data-theme", choice);
+                localStorage.setItem("theme", choice);
+            }
+            summary.textContent = label(choice);
+            switcher.removeAttribute("open");
+        });
+    });
+})();
+""")
 
 
 class FrontendSux(FastAPI):
@@ -235,19 +288,38 @@ class FrontendSux(FastAPI):
         # no page to link to, so it renders as plain, unlinked text/content.
         return li[children]
 
-    def _render_header(self):
-        if not (self._site_name or self._header_items):
-            return None
+    def _render_theme_switcher(self):
+        # A <details class="dropdown"> is Pico's own built-in dropdown-menu
+        # component -- CSS-driven positioning/visibility, no JS needed for
+        # that part. "Theme: Auto" is just the initial server-rendered guess;
+        # THEME_SWITCHER_SCRIPT corrects it from localStorage immediately
+        # after (and it must stay its immediate next sibling -- see there).
+        return [
+            details(class_="dropdown")[
+                summary["Theme: Auto"],
+                ul[
+                    li[a(href="#", data_theme_choice="light")["Light"]],
+                    li[a(href="#", data_theme_choice="dark")["Dark"]],
+                    li[a(href="#", data_theme_choice="auto")["Auto"]],
+                ],
+            ],
+            script[THEME_SWITCHER_SCRIPT],
+        ]
 
+    def _render_header(self):
         # Pico CSS's own convention for a <header><nav>: each direct <ul>
         # child of the nav is its own group, the first flush left and any
         # further ones pushed right -- exactly "brand on the left, menu
-        # items on the right" with no custom CSS of our own needed.
+        # items on the right" with no custom CSS of our own needed. The
+        # theme switcher is always the last group (rightmost), and always
+        # present -- unlike site_name/header_items, it's on by default with
+        # no way to opt out (nothing has asked for one yet).
         groups = []
         if self._site_name:
             groups.append(ul[li[strong[self._site_name]]])
         if self._header_items:
             groups.append(ul[[self._render_header_item(item) for item in self._header_items]])
+        groups.append(self._render_theme_switcher())
 
         return header(class_="container")[nav[groups]]
 
@@ -261,10 +333,9 @@ class FrontendSux(FastAPI):
         else:
             full_title = page_title
 
-        body_children = []
-        page_header = self._render_header()
-        if page_header is not None:
-            body_children.append(page_header)
+        body_children = [
+            self._render_header(),
+        ]
         body_children.append(
             main(class_="container")[
                 div(class_="layout")[
@@ -298,6 +369,7 @@ class FrontendSux(FastAPI):
                         name="viewport",
                         content="width=device-width, initial-scale=1",
                     ),
+                    script[THEME_INIT_SCRIPT],
                     link(
                         rel="stylesheet",
                         href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css",

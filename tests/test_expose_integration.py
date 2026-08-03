@@ -229,11 +229,16 @@ class TestSiteName:
 
 
 class TestHeader:
-    def test_no_header_at_all_without_site_name_or_header_items(self):
+    def test_header_still_renders_for_the_theme_switcher_alone(self):
+        # The header itself is unconditional now (the theme switcher is
+        # on by default, with no opt-out), even though the brand/menu-item
+        # groups inside it are still conditional.
         client = TestClient(build_app())
         response = client.get("/greet/")
 
-        assert "<header" not in response.text
+        assert "<header" in response.text
+        assert '<details class="dropdown">' in response.text
+        assert "<strong>" not in response.text
 
     def test_header_renders_with_only_site_name_set(self):
         client = TestClient(FrontendSux(site_name="Fabric"))
@@ -293,7 +298,10 @@ class TestHeader:
         client = TestClient(app)
         response = client.get("/login/")
 
-        assert "<script>" not in response.text
+        # A positive check on the exact escaped rendering, not just "no raw
+        # <script> anywhere in the page" -- the page legitimately contains a
+        # real <script> tag elsewhere now (the theme switcher's).
+        assert '<a href="/login/">&lt;script&gt;Login</a>' in response.text
         assert "&lt;script&gt;" in response.text
 
     def test_header_item_trusted_markup_content_is_embedded_unescaped(self):
@@ -340,6 +348,63 @@ class TestHeader:
 
         assert "<strong>Fabric</strong>" in response.text
         assert '<a href="/login/">Login</a>' in response.text
+
+
+class TestThemeSwitcher:
+    def test_theme_init_script_present_in_head_before_the_stylesheet(self):
+        client = TestClient(build_app())
+        response = client.get("/greet/")
+
+        head = response.text.split("<head>")[1].split("</head>")[0]
+        assert 'localStorage.getItem("theme")' in head
+        assert head.index("localStorage.getItem") < head.index("pico.min.css")
+
+    def test_script_content_is_not_html_escaped(self):
+        # Regression test: <script> is an HTML "raw text" element, so a
+        # literal &#34; sent inside one is *not* decoded back into `"` by the
+        # browser -- it's just broken JS syntax. A plain (non-Markup) string
+        # passed to htpy's script[...] gets HTML-escaped like any other
+        # value, which silently turned every quote in these scripts into
+        # &#34; and would have made the whole feature non-functional.
+        client = TestClient(build_app())
+        response = client.get("/greet/")
+
+        assert "&#34;" not in response.text
+        assert "&quot;" not in response.text
+
+    def test_dropdown_offers_light_dark_and_auto(self):
+        client = TestClient(build_app())
+        response = client.get("/greet/")
+
+        assert '<details class="dropdown">' in response.text
+        assert '<a href="#" data-theme-choice="light">Light</a>' in response.text
+        assert '<a href="#" data-theme-choice="dark">Dark</a>' in response.text
+        assert '<a href="#" data-theme-choice="auto">Auto</a>' in response.text
+
+    def test_switcher_script_immediately_follows_the_details_element(self):
+        # THEME_SWITCHER_SCRIPT finds its <details> via
+        # document.currentScript.previousElementSibling -- this only works
+        # if nothing else is rendered between them.
+        client = TestClient(build_app())
+        response = client.get("/greet/").text
+
+        details_end = response.index("</details>") + len("</details>")
+        assert response[details_end : details_end + len("<script>")] == "<script>"
+
+    def test_present_even_alongside_site_name_and_header_items(self):
+        app = FrontendSux(site_name="Fabric")
+
+        @app.header_item("Login")
+        @app.expose(["/login/"], "Login")
+        def login() -> str:
+            return "Welcome"
+
+        client = TestClient(app)
+        response = client.get("/")
+
+        assert "<strong>Fabric</strong>" in response.text
+        assert '<a href="/login/">Login</a>' in response.text
+        assert '<details class="dropdown">' in response.text
 
 
 def build_tuple_app() -> FrontendSux:
@@ -487,7 +552,13 @@ class TestHomePage:
 
         assert response.status_code == 200
         assert "<nav>" in response.text
-        assert "<a" not in response.text.split("<nav>")[1].split("</nav>")[0]
+        # Scoped to the sidebar nav specifically (via its wrapping <aside>) --
+        # the header's own nav legitimately has <a> links now (theme switcher
+        # options), so a blanket "first <nav>...</nav> in the whole document"
+        # split would find the wrong one.
+        sidebar = response.text.split('<aside class="nav-desktop">')[1]
+        sidebar_nav = sidebar.split("<nav>")[1].split("</nav>")[0]
+        assert "<a" not in sidebar_nav
 
 
 class TestNavOnExposedPages:
