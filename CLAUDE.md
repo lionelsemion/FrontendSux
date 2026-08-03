@@ -313,11 +313,63 @@ independent things can populate it:
   markup -- there's no separate templating mechanism for it, matching label
   text and custom widgets.
 
-Both `<ul>` groups rendering as "brand left, menu right" comes for free
-from Pico CSS's own `<header><nav>` convention (multiple direct `<ul>`
-children of a `nav` space themselves apart) -- no custom CSS needed here,
-consistent with how `LAYOUT_STYLE` above is kept to just the sidebar's
-responsive breakpoint and nothing else.
+Each group rendering "spaced apart, brand-ish stuff left, the rest right"
+comes for free from Pico CSS's own `<header><nav>` convention (multiple
+direct children of a `nav` space themselves apart) -- no custom CSS needed
+here, consistent with how `LAYOUT_STYLE` above is kept to just the
+sidebar's responsive breakpoint and nothing else.
+
+#### The theme switcher
+
+A light/dark/auto switcher is in the header **unconditionally, on by
+default, with no way to opt out** -- unlike `site_name`/`header_items`,
+nothing gates it, and `_render_header()` (above) always renders a header
+now because of it. It's the last (rightmost) group.
+
+Mechanism is Pico's own, confirmed against Pico's real docs rather than
+assumed: a `data-theme="light"|"dark"` attribute on `<html>` overrides
+Pico's own automatic `prefers-color-scheme`-based dark mode, which is
+already zero-JS/zero-config when the attribute isn't set at all. So the
+only things `FrontendSux` needs to own are (a) a UI to set/clear that
+attribute, and (b) persistence across visits, since neither is Pico's job:
+
+- **UI**: `_render_theme_switcher()` -- a `<details class="dropdown">`,
+  Pico's own built-in CSS-only dropdown-menu component (already used
+  elsewhere in this codebase, in the plain, non-`dropdown`-styled form, for
+  the mobile nav disclosure), with three `<a data-theme-choice="...">`
+  options.
+- **Persistence**: plain `localStorage` (key `"theme"`), read/written by
+  `THEME_SWITCHER_SCRIPT`, which also updates the summary text and closes
+  the dropdown on choice, and `THEME_INIT_SCRIPT`, which reapplies a stored
+  choice on every page load. `THEME_INIT_SCRIPT` specifically runs early in
+  `<head>`, before the Pico stylesheet `<link>` -- applying the attribute
+  after first paint would flash the OS-default theme and then immediately
+  switch, for anyone who'd picked a non-default one.
+
+`THEME_SWITCHER_SCRIPT` finds its own `<details>` via
+`document.currentScript.previousElementSibling` rather than an `id`
+(there's only ever one switcher per page, but this avoids needing to
+invent one) -- which means the `<script>` returned alongside it from
+`_render_theme_switcher()` must stay its immediate next sibling in the DOM.
+
+**A real bug worth remembering, found and fixed while building this**:
+`<script>` and `<style>` are HTML *raw text* elements -- their content
+isn't reparsed as markup at all, so a literal `&#34;` sent inside one is
+**not** decoded back into a `"` by the browser, it's just broken JS/CSS
+syntax. htpy escapes a plain `str` child the same way regardless of the
+parent tag, which is exactly correct for untrusted values (label text, a
+custom type's rendered output, ...) but silently wrong for JS/CSS *we*
+authored and embedded directly -- every quote in `THEME_INIT_SCRIPT`/
+`THEME_SWITCHER_SCRIPT` turned into `&#34;`, which would have made both
+scripts throw a syntax error and do nothing at all, caught by a
+`TestClient` test asserting the literal (unescaped) source is present.
+Fixed by wrapping both, and `LAYOUT_STYLE`, in `markupsafe.Markup(...)` at
+definition time -- the same trusted-string path `html_template()` already
+uses for hand-authored widget HTML. `LAYOUT_STYLE` itself had no
+quote/`<`/`>`/`&` characters, so it was never visibly broken by the same
+issue, but was fixed the same way on the theory that "was never visibly
+broken" isn't "was correct" -- the next person to add a CSS child
+combinator (`>`) to it would have hit the exact same failure mode.
 
 ## Conventions
 
@@ -388,7 +440,11 @@ responsive breakpoint and nothing else.
   that a `TestClient`-based test can't: the browser actually withholding a
   request until a confirm dialog is accepted, `on-change` firing from a
   real `change` event, and `every <N>ms` polling firing on its own without
-  any interaction.
+  any interaction. `test_theme_switcher_e2e.py` is the same idea applied to
+  the theme switcher -- a `TestClient` test can see the dropdown's static
+  markup, but proving `localStorage` persistence (survives a reload, a
+  navigation to a different page) needs a real browser actually running
+  the JS.
 
 Run everything: `uv run pytest`. Run just the fast, non-browser suite:
 `uv run pytest --ignore=tests/test_calculator_e2e.py --ignore=tests/test_navigation_e2e.py --ignore=tests/test_type_coverage_e2e.py`.
