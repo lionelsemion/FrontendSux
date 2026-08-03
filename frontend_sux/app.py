@@ -63,7 +63,7 @@ def _submit_form_attrs(submit: SubmitMode) -> tuple[dict[str, str], bool]:
 
     "button"                      -> htmx's default submit-triggered request, with a button.
     "button-extra-confirmation"   -> same, plus hx-confirm; a button.
-    "on-change"                   -> hx-trigger="input changed delay:<N>ms"; no button.
+    "on-change"                   -> hx-trigger="input delay:<N>ms"; no button.
     (seconds, "seconds interval") -> hx-trigger="every <ms>ms" polling; no button.
     """
 
@@ -77,12 +77,24 @@ def _submit_form_attrs(submit: SubmitMode) -> tuple[dict[str, str], bool]:
         # "input" (not "change") so text fields update as you type rather than
         # only on blur -- browsers fire "change" for a text <input> only when
         # it loses focus, which reads as "not actually live" for exactly the
-        # kind of preview this mode exists for. "changed" skips re-firing on
-        # non-modifying keys (arrows, etc.); "delay" debounces bursts of
+        # kind of preview this mode exists for. "delay" debounces a burst of
         # keystrokes into one request instead of one per keystroke. "input"
         # fires for <select>/checkboxes too in evergreen browsers, so one
         # trigger spec covers every field type a form can contain.
-        return {"hx_trigger": f"input changed delay:{ON_CHANGE_DEBOUNCE_MS}ms"}, False
+        #
+        # Deliberately no "changed" modifier: it suppresses a trigger when
+        # *that specific element's* value is unchanged since it last fired --
+        # correct for a text <input>/<select> (one element, one value), but
+        # wrong for a radio-button-based custom widget like Rating (multiple
+        # <input>s sharing a name, each with a fixed, distinct value that
+        # never itself changes -- only which one is checked does). Cycling a
+        # radio group back to a value it already visited once (e.g. 3 stars
+        # -> 5 stars -> 3 stars again) re-fires that same <input value="3">,
+        # which "changed" would wrongly suppress as "unchanged" even though
+        # the group's selection genuinely changed. "input" alone doesn't have
+        # this problem, and is redundant with "changed" for plain text fields
+        # anyway (it only ever fires on an actual value change to begin with).
+        return {"hx_trigger": f"input delay:{ON_CHANGE_DEBOUNCE_MS}ms"}, False
 
     if isinstance(submit, tuple):
         seconds, tag = submit

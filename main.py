@@ -192,6 +192,14 @@ def average_rating(
     return Rating(round((a.stars + b.stars) / 2))
 
 
+@app.expose(["/rating/live-average/"], "Live Average Rating", submit="on-change")
+def live_average_rating(
+    a: Annotated[Rating, "First rating"],
+    b: Annotated[Rating, "Second rating"],
+) -> Rating:
+    return Rating(round((a.stars + b.stars) / 2))
+
+
 @app.expose(["/rating/rate-and-double/"], "Rate and Double")
 def rate_and_double(
     rating: Annotated[Rating, "Rating"],

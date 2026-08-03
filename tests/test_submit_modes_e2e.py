@@ -32,6 +32,32 @@ def test_on_change_updates_live_while_typing_with_no_blur_and_no_button(
     expect(page.locator("#output")).to_contain_text("Result: 3", timeout=2000)
 
 
+def test_on_change_re_fires_when_a_radio_group_cycles_back_to_a_visited_value(
+    page: Page, live_server_url: str
+):
+    # Regression test for a real bug: htmx's "changed" trigger modifier (an
+    # earlier version of this mode's hx-trigger included it) tracks a
+    # *per-element* value history, but a radio button's own `value` never
+    # changes -- only which radio in the group is checked does. That made
+    # "changed" wrongly suppress a request when the group's selection cycled
+    # back to a value one of its radios already fired once before, even
+    # though the group's actual selection had genuinely changed in between.
+    page.goto(live_server_url + "/rating/live-average/")
+
+    page.click("label[for='a-3']")
+    page.click("label[for='b-3']")
+    expect(page.locator("#output")).to_contain_text("★★★☆☆", timeout=2000)
+
+    page.click("label[for='a-5']")
+    expect(page.locator("#output")).to_contain_text("★★★★☆", timeout=2000)
+
+    # This is the second time the "a" rating's own value=3 radio fires (its
+    # first firing was the very first click above) -- the case a lingering
+    # "changed" modifier would wrongly suppress.
+    page.click("label[for='a-3']")
+    expect(page.locator("#output")).to_contain_text("★★★☆☆", timeout=2000)
+
+
 def test_interval_polls_automatically_without_any_interaction(page: Page, live_server_url: str):
     page.goto(live_server_url + "/clock/now/")
 

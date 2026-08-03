@@ -143,7 +143,7 @@ class TestSubmitModes:
         response = client.get("/greet/")
 
         assert "<button" not in response.text
-        assert 'hx-trigger="input changed delay:500ms"' in response.text
+        assert 'hx-trigger="input delay:500ms"' in response.text
 
     def test_interval_hides_button_and_triggers_every_n_milliseconds(self):
         client = TestClient(build_app(submit=(2.5, "seconds interval")))
