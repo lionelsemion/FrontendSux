@@ -220,10 +220,17 @@ all validation of the mode itself happens — eagerly, in `expose()` before
   htmx run the browser's native `confirm()` before issuing the request and
   abort it entirely if the user cancels. No custom modal/JS — htmx already
   has this built in.
-- `"on-change"` — no button; `hx-trigger="change"` on the `<form>`. A
-  `change` event on any descendant input bubbles up to the form (that's why
-  this is one attribute on the form rather than one per input), so this
-  works for however many parameters the function has, including zero.
+- `"on-change"` — no button; `hx-trigger="input changed delay:<N>ms"`
+  (`ON_CHANGE_DEBOUNCE_MS`, currently 500) on the `<form>`. Deliberately
+  `input`, not `change`: a text `<input>` only fires `change` on blur, which
+  reads as "not actually live" for exactly the kind of preview this mode is
+  for -- typing into a field wouldn't update anything until you clicked or
+  tabbed away. `input` fires per keystroke (also for `<select>`/checkboxes
+  in evergreen browsers, so one attribute on the form covers every field
+  type); `changed` skips re-firing on non-modifying keys; `delay` debounces
+  a burst of keystrokes into one request instead of one per keystroke. This
+  bubbles from any descendant input up to the form, so it works for however
+  many parameters the function has, including zero.
 - `(seconds, "seconds interval")` — no button; `hx-trigger="every
   <N>ms"`. Converted to milliseconds (rounded) rather than passing seconds
   through directly, since htmx's polling trigger syntax doesn't parse
@@ -242,12 +249,56 @@ triggered the request that reached it.
 
 `FrontendSux(site_name=...)` is `None` by default (every existing behavior
 and rendered string is unchanged when omitted). When set, it's appended to
-every page's `<title>` (`"{page_title} · {site_name}"`) and used as both the
-home page's own title and its `<h1>`, replacing the generic "Home" /
-"Today's menu". It's intentionally just those two things — a name, not a
-theme — see a *consuming* app's `main.py` (e.g. a site built on this
-library) for an example of turning it on; this library's own `main.py`
-leaves it unset since it's demonstrating the library unbranded.
+every page's `<title>` (`"{page_title} · {site_name}"`), used as both the
+home page's own title and its `<h1>` (replacing the generic "Home" /
+"Today's menu"), and shown as the left-hand brand in the header (below).
+See a *consuming* app's `main.py` (e.g. a site built on this library) for an
+example of turning it on; this library's own `main.py` leaves it unset,
+since it's demonstrating the library unbranded -- the one `header_item()`
+example there is what makes its own header appear at all.
+
+#### The header, and `header_item()` for custom header menu items
+
+Every page now renders an optional `<header class="container"><nav>...`
+above `<main>`, built by `_render_header()` and only rendered at all when
+there's something to put in it (`self._site_name or self._header_items`)
+-- an app using neither sees no visual change and no empty bar. Two
+independent things can populate it:
+
+- **`site_name`** (above) -- rendered as `<strong>{site_name}</strong>` in
+  its own `<ul>`.
+- **`FrontendSux.header_item(title, content=None)`** -- a decorator
+  factory, registering into `self._header_items` (rendered as a second
+  `<ul>`, in registration order). It's meant to be stacked directly on top
+  of `@expose(...)` (applied second/outermost, i.e. above it in source):
+
+  ```python
+  @app.header_item("Login")
+  @app.expose(["/login/"], "Login")
+  def login(...): ...
+  ```
+
+  `expose()` stashes the frontend path(s) it just registered onto the
+  (otherwise-unwrapped) function it returns, as
+  `func.__frontendsux_frontend_paths__` -- purely so a `header_item()`
+  applied afterward has something to read. `header_item()` looks for that
+  attribute and, if present, renders as `<a href="{first frontend path}">`;
+  if absent (no `@expose(...)` underneath), it renders as plain unlinked
+  text instead -- there's currently no dropdown/popover content mechanism
+  for the "no page to link to" case; a real use case for one would be a
+  reasonable follow-up, not something to build speculatively now.
+
+  `content` (rendered *before* `title`) is handled exactly like any other
+  HTML in this codebase -- a plain `str` is escaped, an htpy `Node` or
+  `markupsafe.Markup` (e.g. from `html_template()`) is embedded as trusted
+  markup -- there's no separate templating mechanism for it, matching label
+  text and custom widgets.
+
+Both `<ul>` groups rendering as "brand left, menu right" comes for free
+from Pico CSS's own `<header><nav>` convention (multiple direct `<ul>`
+children of a `nav` space themselves apart) -- no custom CSS needed here,
+consistent with how `LAYOUT_STYLE` above is kept to just the sidebar's
+responsive breakpoint and nothing else.
 
 ## Conventions
 
@@ -274,12 +325,15 @@ leaves it unset since it's demonstrating the library unbranded.
   what `main.py`'s `Rating` example + its tests are for. Keep at least one
   working example of it around; don't delete `Rating` as "unused example code."
 - **This "example route + test" rule isn't limited to `forms.py`'s type
-  dispatch — it applies to any new `expose()` capability.** `submit=`'s four
-  modes and tuple/nested-tuple return values are two examples: neither is a
-  `forms.py` built-in type, but each mode and each return shape (flat tuple,
-  nested tuple, a tuple containing a `SupportsFormField`/`Image` leaf) still
-  has its own route in `main.py` and its own test(s). Tuple support is
-  return-only by design (see `forms.py`'s section above) — don't add it to
+  dispatch — it applies to any new `expose()`/app-level capability.**
+  `submit=`'s four modes, tuple/nested-tuple return values, and
+  `header_item()` are three examples: none of them is a `forms.py`
+  built-in type, but each mode, each return shape (flat tuple, nested
+  tuple, a tuple containing a `SupportsFormField`/`Image` leaf), and each
+  `header_item()` behavior (stacked-with-`expose` link, standalone
+  unlinked text, plain vs. trusted `content`) still has its own route in
+  `main.py` and its own test(s). Tuple support is return-only by design
+  (see `forms.py`'s section above) — don't add it to
   `input_for_parameter`/`coerce_form_value` without a real driving use case.
 
 ## Commit messages
