@@ -210,6 +210,16 @@ class TestSiteName:
 
         assert "<h1>Fabric</h1>" in response.text
 
+    def test_site_name_is_not_duplicated_in_the_home_page_title(self):
+        # The home page already uses site_name as its own page_title (for the
+        # heading above) -- _render_page must not *also* suffix "· site_name"
+        # on top of that, or the title tag would read "Fabric · Fabric".
+        client = TestClient(FrontendSux(site_name="Fabric"))
+        response = client.get("/")
+
+        assert "<title>Fabric</title>" in response.text
+        assert "Fabric · Fabric" not in response.text
+
     def test_default_home_heading_unchanged_without_site_name(self):
         client = TestClient(FrontendSux())
         response = client.get("/")

@@ -196,10 +196,18 @@ class FrontendSux(FastAPI):
                 h1[self._site_name or "Today's menu"],
                 p["Pick a page from the navigation to get started."],
             ],
+            is_home=True,
         )
 
-    def _render_page(self, page_title: str, content):
-        full_title = f"{page_title} · {self._site_name}" if self._site_name else page_title
+    def _render_page(self, page_title: str, content, *, is_home: bool = False):
+        # is_home skips the "· site_name" suffix below: _render_home already
+        # passes site_name itself as page_title (so the home page's own
+        # heading/title show the brand, not the literal word "Home"), and
+        # suffixing again would double it up into "Fabric · Fabric".
+        if self._site_name and not is_home:
+            full_title = f"{page_title} · {self._site_name}"
+        else:
+            full_title = page_title
         return HtpyResponse(
             html[
                 head[
