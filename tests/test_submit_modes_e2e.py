@@ -15,16 +15,21 @@ def test_button_mode_is_the_default_and_needs_a_click(page: Page, live_server_ur
     expect(page.locator("#output")).to_contain_text("HI")
 
 
-def test_on_change_updates_without_a_submit_button(page: Page, live_server_url: str):
+def test_on_change_updates_live_while_typing_with_no_blur_and_no_button(
+    page: Page, live_server_url: str
+):
     page.goto(live_server_url + "/text/word-count-live/")
 
     expect(page.locator("button[type='submit']")).to_have_count(0)
 
-    text_input = page.locator("input[name='text']")
-    text_input.fill("one two three")
-    text_input.blur()
+    # Deliberately no .blur()/Tab/click afterward -- this is the whole point
+    # of the fix: hx-trigger="input ..." (not "change") means the request
+    # fires from typing itself. A stale "change"-only trigger would leave
+    # #output empty here, since a text <input>'s "change" event only fires
+    # on blur, never while the field still has focus.
+    page.locator("input[name='text']").fill("one two three")
 
-    expect(page.locator("#output")).to_contain_text("Result: 3")
+    expect(page.locator("#output")).to_contain_text("Result: 3", timeout=2000)
 
 
 def test_interval_polls_automatically_without_any_interaction(page: Page, live_server_url: str):

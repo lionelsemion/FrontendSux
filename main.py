@@ -136,6 +136,12 @@ def greet_with_confirmation(name: Annotated[str, "Name"]) -> str:
     return f"Hello, {name}!"
 
 
+@app.header_item("Login")
+@app.expose(["/demo/login/"], "Login")
+def login_placeholder() -> str:
+    return "Not a real login -- demonstrates header_item() stacked with expose()."
+
+
 @app.expose(["/clock/now/"], "Clock", submit=(1.0, "seconds interval"))
 def clock_now() -> str:
     return datetime.now().strftime("%H:%M:%S")

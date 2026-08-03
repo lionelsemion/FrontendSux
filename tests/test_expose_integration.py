@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from htpy import input as htpy_input
 from htpy import label as htpy_label
+from htpy import strong as htpy_strong
 from PIL import Image
 
 from frontend_sux import FrontendSux
@@ -137,12 +138,12 @@ class TestSubmitModes:
         assert "<button" in response.text
         assert 'hx-confirm="Are you sure you want to submit?"' in response.text
 
-    def test_on_change_hides_button_and_triggers_on_change_event(self):
+    def test_on_change_hides_button_and_triggers_debounced_input_event(self):
         client = TestClient(build_app(submit="on-change"))
         response = client.get("/greet/")
 
         assert "<button" not in response.text
-        assert 'hx-trigger="change"' in response.text
+        assert 'hx-trigger="input changed delay:500ms"' in response.text
 
     def test_interval_hides_button_and_triggers_every_n_milliseconds(self):
         client = TestClient(build_app(submit=(2.5, "seconds interval")))
@@ -225,6 +226,120 @@ class TestSiteName:
         response = client.get("/")
 
         assert "<h1>Today&#39;s menu</h1>" in response.text
+
+
+class TestHeader:
+    def test_no_header_at_all_without_site_name_or_header_items(self):
+        client = TestClient(build_app())
+        response = client.get("/greet/")
+
+        assert "<header" not in response.text
+
+    def test_header_renders_with_only_site_name_set(self):
+        client = TestClient(FrontendSux(site_name="Fabric"))
+        response = client.get("/")
+
+        assert "<header" in response.text
+        assert "<strong>Fabric</strong>" in response.text
+
+    def test_header_item_stacked_with_expose_renders_as_a_link_to_that_page(self):
+        app = FrontendSux()
+
+        @app.header_item("Login")
+        @app.expose(["/login/"], "Login")
+        def login() -> str:
+            return "Welcome"
+
+        client = TestClient(app)
+        response = client.get("/login/")
+
+        assert '<header' in response.text
+        assert '<a href="/login/">Login</a>' in response.text
+
+    def test_header_item_without_a_matching_expose_renders_unlinked(self):
+        app = FrontendSux()
+
+        @app.header_item("Just Text")
+        def not_exposed():
+            pass
+
+        client = TestClient(app)
+        response = client.get("/")
+
+        assert "<li>Just Text</li>" in response.text
+        assert '<a href="/login/">Just Text</a>' not in response.text
+
+    def test_header_item_content_renders_before_the_title(self):
+        app = FrontendSux()
+
+        @app.header_item("Login", content="* ")
+        @app.expose(["/login/"], "Login")
+        def login() -> str:
+            return "Welcome"
+
+        client = TestClient(app)
+        response = client.get("/login/")
+
+        assert '<a href="/login/">* Login</a>' in response.text
+
+    def test_header_item_string_content_is_escaped(self):
+        app = FrontendSux()
+
+        @app.header_item("Login", content="<script>")
+        @app.expose(["/login/"], "Login")
+        def login() -> str:
+            return "Welcome"
+
+        client = TestClient(app)
+        response = client.get("/login/")
+
+        assert "<script>" not in response.text
+        assert "&lt;script&gt;" in response.text
+
+    def test_header_item_trusted_markup_content_is_embedded_unescaped(self):
+        app = FrontendSux()
+
+        @app.header_item("Login", content=htpy_strong["VIP"])
+        @app.expose(["/login/"], "Login")
+        def login() -> str:
+            return "Welcome"
+
+        client = TestClient(app)
+        response = client.get("/login/")
+
+        assert "<strong>VIP</strong>Login" in response.text
+
+    def test_multiple_header_items_render_in_registration_order(self):
+        app = FrontendSux()
+
+        @app.header_item("First")
+        @app.expose(["/first/"], "First")
+        def first() -> str:
+            return "x"
+
+        @app.header_item("Second")
+        @app.expose(["/second/"], "Second")
+        def second() -> str:
+            return "x"
+
+        client = TestClient(app)
+        response = client.get("/")
+
+        assert response.text.index('>First</a>') < response.text.index('>Second</a>')
+
+    def test_header_items_appear_alongside_the_site_name_brand(self):
+        app = FrontendSux(site_name="Fabric")
+
+        @app.header_item("Login")
+        @app.expose(["/login/"], "Login")
+        def login() -> str:
+            return "Welcome"
+
+        client = TestClient(app)
+        response = client.get("/")
+
+        assert "<strong>Fabric</strong>" in response.text
+        assert '<a href="/login/">Login</a>' in response.text
 
 
 def build_tuple_app() -> FrontendSux:

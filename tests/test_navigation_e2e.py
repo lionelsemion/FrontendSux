@@ -28,6 +28,15 @@ def test_clicking_a_nav_link_navigates_to_that_page(page: Page, live_server_url:
     expect(page.locator("input[name='a']")).to_be_visible()
 
 
+def test_header_item_link_navigates_to_its_expose_d_page(page: Page, live_server_url: str):
+    page.goto(live_server_url + "/")
+
+    page.locator("header").get_by_role("link", name="Login", exact=True).click()
+
+    expect(page).to_have_url(live_server_url + "/demo/login/")
+    expect(page.get_by_role("heading", name="Login", level=1)).to_be_visible()
+
+
 def test_grouped_page_is_reachable_and_functional(page: Page, live_server_url: str):
     page.goto(live_server_url + "/")
 

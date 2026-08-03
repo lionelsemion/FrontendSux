@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import wraps
 import inspect
-from typing import Literal, get_args, get_origin, get_type_hints
+from typing import Any, Literal, get_args, get_origin, get_type_hints
 
 from htpy import (
     a,
@@ -16,16 +16,21 @@ from htpy import (
     form,
     h1,
     head,
+    header,
     hgroup,
     html,
+    li,
     link,
     main,
     meta,
+    nav,
     p,
     script,
+    strong,
     style,
     summary,
     title,
+    ul,
 )
 from htpy.starlette import HtpyResponse
 
@@ -48,6 +53,8 @@ SubmitMode = (
     | tuple[float, Literal["seconds interval"]]
 )
 
+ON_CHANGE_DEBOUNCE_MS = 500
+
 
 def _submit_form_attrs(submit: SubmitMode) -> tuple[dict[str, str], bool]:
     """
@@ -56,8 +63,7 @@ def _submit_form_attrs(submit: SubmitMode) -> tuple[dict[str, str], bool]:
 
     "button"                      -> htmx's default submit-triggered request, with a button.
     "button-extra-confirmation"   -> same, plus hx-confirm; a button.
-    "on-change"                   -> hx-trigger="change" (bubbles up from any input's
-                                      change event); no button.
+    "on-change"                   -> hx-trigger="input changed delay:<N>ms"; no button.
     (seconds, "seconds interval") -> hx-trigger="every <ms>ms" polling; no button.
     """
 
@@ -68,7 +74,15 @@ def _submit_form_attrs(submit: SubmitMode) -> tuple[dict[str, str], bool]:
         return {"hx_confirm": "Are you sure you want to submit?"}, True
 
     if submit == "on-change":
-        return {"hx_trigger": "change"}, False
+        # "input" (not "change") so text fields update as you type rather than
+        # only on blur -- browsers fire "change" for a text <input> only when
+        # it loses focus, which reads as "not actually live" for exactly the
+        # kind of preview this mode exists for. "changed" skips re-firing on
+        # non-modifying keys (arrows, etc.); "delay" debounces bursts of
+        # keystrokes into one request instead of one per keystroke. "input"
+        # fires for <select>/checkboxes too in evergreen browsers, so one
+        # trigger spec covers every field type a form can contain.
+        return {"hx_trigger": f"input changed delay:{ON_CHANGE_DEBOUNCE_MS}ms"}, False
 
     if isinstance(submit, tuple):
         seconds, tag = submit
@@ -186,6 +200,7 @@ class FrontendSux(FastAPI):
     def __init__(self, *args, site_name: str | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self._pages: list[tuple[str, str]] = []
+        self._header_items: list[tuple[str, str | None, Any]] = []
         self._site_name = site_name
         self.get("/")(self._render_home)
 
@@ -199,6 +214,31 @@ class FrontendSux(FastAPI):
             is_home=True,
         )
 
+    def _render_header_item(self, item: tuple[str, str | None, Any]):
+        title_text, href, item_content = item
+        children = [item_content, title_text] if item_content is not None else [title_text]
+        if href:
+            return li[a(href=href)[children]]
+        # No matching @expose(...) was stacked under this header_item -- there's
+        # no page to link to, so it renders as plain, unlinked text/content.
+        return li[children]
+
+    def _render_header(self):
+        if not (self._site_name or self._header_items):
+            return None
+
+        # Pico CSS's own convention for a <header><nav>: each direct <ul>
+        # child of the nav is its own group, the first flush left and any
+        # further ones pushed right -- exactly "brand on the left, menu
+        # items on the right" with no custom CSS of our own needed.
+        groups = []
+        if self._site_name:
+            groups.append(ul[li[strong[self._site_name]]])
+        if self._header_items:
+            groups.append(ul[[self._render_header_item(item) for item in self._header_items]])
+
+        return header(class_="container")[nav[groups]]
+
     def _render_page(self, page_title: str, content, *, is_home: bool = False):
         # is_home skips the "· site_name" suffix below: _render_home already
         # passes site_name itself as page_title (so the home page's own
@@ -208,6 +248,35 @@ class FrontendSux(FastAPI):
             full_title = f"{page_title} · {self._site_name}"
         else:
             full_title = page_title
+
+        body_children = []
+        page_header = self._render_header()
+        if page_header is not None:
+            body_children.append(page_header)
+        body_children.append(
+            main(class_="container")[
+                div(class_="layout")[
+                    # Two variants, CSS-switched by viewport width (see
+                    # LAYOUT_STYLE): a persistent sidebar on desktop and a
+                    # <details>-based disclosure — collapsed by default —
+                    # on mobile. A single element can't have a different
+                    # default open/closed state per breakpoint, so this
+                    # is duplicated rather than reused; whichever one is
+                    # display:none is excluded from the accessibility
+                    # tree, so there's only ever one "Navigation" landmark
+                    # exposed at a time.
+                    aside(class_="nav-desktop")[render_nav(self._pages)],
+                    aside(class_="nav-mobile")[
+                        details[
+                            summary["Navigation"],
+                            render_nav(self._pages),
+                        ]
+                    ],
+                    div[content],
+                ]
+            ]
+        )
+
         return HtpyResponse(
             html[
                 head[
@@ -224,29 +293,7 @@ class FrontendSux(FastAPI):
                     script(src="https://unpkg.com/htmx.org@2.0.4"),
                     style[LAYOUT_STYLE],
                 ],
-                body[
-                    main(class_="container")[
-                        div(class_="layout")[
-                            # Two variants, CSS-switched by viewport width (see
-                            # LAYOUT_STYLE): a persistent sidebar on desktop and a
-                            # <details>-based disclosure — collapsed by default —
-                            # on mobile. A single element can't have a different
-                            # default open/closed state per breakpoint, so this
-                            # is duplicated rather than reused; whichever one is
-                            # display:none is excluded from the accessibility
-                            # tree, so there's only ever one "Navigation" landmark
-                            # exposed at a time.
-                            aside(class_="nav-desktop")[render_nav(self._pages)],
-                            aside(class_="nav-mobile")[
-                                details[
-                                    summary["Navigation"],
-                                    render_nav(self._pages),
-                                ]
-                            ],
-                            div[content],
-                        ]
-                    ]
-                ],
+                body[body_children],
             ]
         )
 
@@ -407,6 +454,52 @@ class FrontendSux(FastAPI):
                 self.get(path)(lambda path=path: render_form(path))
                 self.post(path)(form_submit_wrapper)
 
+            # Read by header_item(), when stacked on top of this decorator, to
+            # link a header item at the page this function was just exposed at
+            # -- see header_item()'s docstring for the stacking order this
+            # relies on.
+            func.__frontendsux_frontend_paths__ = tuple(frontend_paths)
+
             return func
 
         return wrapper
+
+    def header_item(self, title: str, content: Any = None):
+        """
+        Register an item in the site header (a <header><nav> rendered above
+        every page, alongside site_name -- see FrontendSux.__init__ -- and
+        separate from the sidebar nav built from expose()'d pages).
+
+        Stack on top of @expose(...) -- apply header_item as the *outer*
+        decorator, i.e. closest to the def -- to turn it into a link to that
+        page:
+
+            @app.header_item("Login")
+            @app.expose(["/login/"], "Login")
+            def login(...): ...
+
+        This relies on decorator application order: Python applies
+        @app.expose(...) first (it's innermost), which registers the page
+        and returns the original function with its frontend path(s) stashed
+        on it; @app.header_item(...) then reads that back. Order matters --
+        header_item has nothing to find if it runs first.
+
+        Used without a matching @expose(...) underneath, a header item
+        currently renders as plain, unlinked text -- there's no
+        dropdown/popover content mechanism yet; that would be a reasonable
+        follow-up if a real use case for one shows up.
+
+        `content` renders *before* the title and is handled exactly like any
+        other HTML in this codebase: a plain str is escaped, while an htpy
+        Node or markupsafe.Markup (e.g. from html_template()) is embedded as
+        trusted markup -- there's no separate templating mechanism for it,
+        matching how label text and custom widgets already work.
+        """
+
+        def decorator(func):
+            frontend_paths = getattr(func, "__frontendsux_frontend_paths__", None)
+            href = frontend_paths[0] if frontend_paths else None
+            self._header_items.append((title, href, content))
+            return func
+
+        return decorator
